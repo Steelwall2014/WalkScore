@@ -1,46 +1,26 @@
 from osgeo import ogr
 from osgeo import gdal
-from road_info import RoadInfo
-from poi_point import Poipoint 
 from make_start_points import *
-from compute_walkscore import *
+from compute_walkscore_1 import *
+from networkx_readshp import *
 import os
 import time
 
+
 class WalkscoreCalculator:
-    all_road_info = []
-    all_start_point_info = []
-    def __init__(self):
-#        self.poi_path = 'C:\\Users\\DELL\\Desktop\\first_trial\\'
+
+    def __init__(self, poi_types, weight_tables):
         self.road_linedata = ''
         self.poi_pointdata = {}
-        self.all_road_info.clear()
-        self.all_start_point_info.clear()
+        self.poi_types = poi_types
+        self.weight_tables = weight_tables
         self.MultiType_poi_points_geo = {}
-        self.weight_tables = {'grocery_stores': [3], 
-                          'restaurants_and_bars': [0.75,0.45,0.25,0.25,0.225,0.225,0.225,0.225,0.2,0.2], 
-                          'shops': [0.5,0.45,0.4,0.35,0.3], 
-                          'cafes': [1.25,0.75], 
-                          'banks': [1], 
-                          'parks': [1], 
-                          'schools': [1], 
-                          'bookstores': [1], 
-                          'entertain': [1]}   
-#后面再加种类     
-        self.poi_types = ['grocery_stores', 
-                          'restaurants_and_bars', 
-                          'shops', 
-                          'cafes', 
-                          'banks', 
-                          'parks', 
-                          'schools', 
-                          'bookstores', 
-                          'entertain']
-#后面再加种类 
+
         '''防止编码出现问题'''
         gdal.SetConfigOption('GDAL_FILENAME_IS_UTF8', 'YES')
         gdal.SetConfigOption('SHAPE_ENCODING', 'GBK')
         
+    '''设置道路数据的路径'''    
     def Set_Road_Linedata(self, filename:str):
         self.road_linedata = filename
         if os.path.exists(self.road_linedata):
@@ -50,7 +30,7 @@ class WalkscoreCalculator:
             print('道路数据路径设置失败...')
             return False
         
-
+    '''设置POI数据的路径'''
     def Set_POI_Pointdata(self, filepath:str):
         for poi_type in self.poi_types:
             self.poi_pointdata[poi_type] = filepath + poi_type + '\\' + poi_type + '_cgcs2000.shp'   
@@ -60,12 +40,13 @@ class WalkscoreCalculator:
         print('POI数据路径设置成功...\n')
         return True
     
+    '''准备POI数据'''
     def Prepare_POIinfo(self):
         MultiType_poi_points_geo = {}
         for poi_type, path in self.poi_pointdata.items():  
             print('\n当前处理 %s 类POI...' % poi_type)
             
-            '''读取shp文件'''
+            '''读取shapfile'''
             dr = ogr.GetDriverByName('ESRI Shapefile')
             if dr is None:
                 print('注册 %s 的驱动失败...' % poi_type)
@@ -81,7 +62,7 @@ class WalkscoreCalculator:
             if layer is None:
                 print('获取 %s 的图层失败...' % poi_type)
                 return False
-            print('获取 %s 的图层成功...' % poi_type)
+            print('获取 %s 的图层成功...' % poi_type)  
             layer.ResetReading()
         
             SingleType_poi_points_geo = ogr.Geometry(ogr.wkbMultiPoint)
@@ -97,9 +78,10 @@ class WalkscoreCalculator:
     
     def Compute_Road_Walkscore(self, seg_length):
         '''准备道路的数据以及计算步行指数'''
-        temp_road_info = []
+        Multi_roads_geos = read_shp_to_geo(self.road_linedata)
+        G = read_shp_to_graph(self.road_linedata, simplify=False).to_undirected()
+        
         temp_point_id = 0        
-        #准备路网的数据，temp_road_info是所有道路的数据，temp_roadInfo是一条道路的数据  
         '''读取shp文件'''
         dr = ogr.GetDriverByName('ESRI Shapefile')
         if dr is None:
@@ -116,10 +98,12 @@ class WalkscoreCalculator:
         if layer is None:
             print('获取道路的图层失败...')
             return False
-        print('获取道路的图层成功...')
-        layer.ResetReading()   
-        flag = input("是否写入？1为写入，其他字符为不写入\n")
-        if flag == '1':            
+        print('获取道路的图层成功...') 
+        flag = int(input("是否写入？1为写入，其他字符为不写入\n"))
+        
+        '''准备写入，只有flag == 1的时候才写入'''
+        if flag == 1:   
+            print('写入\n')
             oFieldID = ogr.FieldDefn("walkscore", ogr.OFTReal)
             layer.CreateField(oFieldID, 1)
             for poi_type in self.poi_types:
@@ -131,34 +115,44 @@ class WalkscoreCalculator:
                 layer.CreateField(oFieldID, 1)
         else:
             print('不写入\n')
-            
-        temp_road = layer.GetNextFeature()
-        print('\n开始计算步行指数，一共有6419条道路')
+        print('\n开始计算步行指数')
 
         i = 0
-        counting = 0
-        start = time.time()
+        
+        start = time.time()        
+        layer.ResetReading()   
+        temp_road = layer.GetNextFeature()
         while temp_road:
-            i += 1
-            temp_point_info = []
-            temp_geo = temp_road.GetGeometryRef().Clone() 
+            start_time = time.time()            
+            temp_road_geo = temp_road.GetGeometryRef().Clone() 
             temp_name = temp_road.GetFieldAsString('name')
             temp_id = temp_road.GetFieldAsString('id')
             if temp_name == '':
                 temp_name = 'Road No.'+str(temp_id) 
-            temp_point_id = 0
-            Make_Start_Points_Road(temp_geo, temp_point_info, seg_length, temp_point_id, temp_id) #每隔seg_length创建一个出发点
-            counting += len(temp_point_info)
-            print('第%d条：id为%s' % (i, temp_id))
-            
-            start_time = time.time()
-            ws = Compute_Walkscore_Road(temp_point_info, self.weight_tables, self.MultiType_poi_points_geo, temp_geo)   
-            walkscore = ws['main']
+            i += 1
+            print('第%d条：id为%s' % (i, temp_id))     
+            '''
+            #下面三行是测试时用的
+            if temp_id != '55':     
+                temp_road = layer.GetNextFeature()
+                continue
+            '''
+            start_points = []
+            Make_Start_Points_Road(temp_road_geo, start_points, seg_length, temp_id) #每隔seg_length创建一个出发点
+            G_copy = G.copy()
+            ws = Compute_Walkscore_Road(start_points, 
+                                        self.weight_tables, 
+                                        self.MultiType_poi_points_geo, 
+                                        temp_road_geo, 
+                                        Multi_roads_geos,
+                                        G_copy)   
+            walkscore = ws#['main']
             print('步行指数为 %f   ' % walkscore, end='')            
             end_time = time.time()             
             print('步行指数计算%f秒，共%f秒' % ((end_time-start_time), (end_time-start)))
             
-            if flag == '1':           
+            '''写入，只有flag=1的时候才写入'''
+            if flag == 1:           
                 temp_road.SetField("walkscore", walkscore)
                 for poi_type in self.poi_types:
                     temp_ws = ws[poi_type]
@@ -169,15 +163,11 @@ class WalkscoreCalculator:
                     temp_road.SetField(poi_type, temp_ws)
                 layer.SetFeature(temp_road)        
             
-            temp_roadInfo = RoadInfo(temp_name, temp_id, temp_geo, 0)
-            temp_road_info.append(temp_roadInfo)
             temp_road = layer.GetNextFeature()
 #            break
-        self.all_road_info = temp_road_info
-        self.all_start_point_info = temp_point_info
-        print(counting)
         return True
-         
+
+    '''下面这是计算面域步行指数的，暂时没用'''         
     def Compute_Region_Walkscore(self, first_point_coord, last_point_coord, density, filepath):
         start_points_info = Make_Start_Points_Region(first_point_coord, last_point_coord, density)
         Compute_Walkscore_Region(start_points_info, self.weight_tables, self.MultiType_poi_points_geo)
@@ -205,21 +195,5 @@ class WalkscoreCalculator:
             layer.CreateFeature(start_point_feature)
         ds.Destroy()
         return True
-    
-    
-    
-    
-         
-'''            
-walkscore_calculator = WalkscoreCalculator()
-types = walkscore_calculator.poi_types
-walkscore_calculator.Set_Road_Linedata('C:\\Users\\DELL\\Desktop\\first_trial\\road\\roads_cgcs2000.shp')
-walkscore_calculator.Set_POI_Pointdata('C:\\Users\\DELL\\Desktop\\first_trial\\')
-walkscore_calculator.Prepare_Roadinfo()
-walkscore_calculator.Prepare_POIinfo()
-walkscore_calculator.Compute_Walkscore(types)
-'''
-
-
-                
+              
             

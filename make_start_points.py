@@ -5,10 +5,11 @@ import math
 def Make_Start_Points_Road(road_geo:ogr.Geometry, 
                            start_points:list, 
                            seg_length:float, 
-                           temp_point_id, 
                            temp_road_id, 
+                           temp_point_id=0, 
                            flag=True):
     '''在road_geo上每隔seg_length取一个出发点'''
+
     temp_point_id += 1    
     count = road_geo.GetPointCount()
     total_length = road_geo.Length()
@@ -52,7 +53,7 @@ def Make_Start_Points_Road(road_geo:ogr.Geometry,
     start_point = Startpoint(temp_point_id, temp_road_id, start_point_geo)
     start_points.append(start_point)
     
-    '''给出发点后面的点做一个线的几何体，用来进行下一个递归'''
+    '''给出发点后面的一堆点做一个线的几何体，用来进行下一个递归'''
     temp_road_geo = ogr.Geometry(ogr.wkbLineString)
     temp_road_geo.AddPoint(start_point_x, start_point_y)
     for i in range(index+1, count):
@@ -60,19 +61,9 @@ def Make_Start_Points_Road(road_geo:ogr.Geometry,
         temp_y = road_geo.GetY(i)        
         temp_road_geo.AddPoint(temp_x, temp_y)
     if flag:    
-        Make_Start_Points_Road(temp_road_geo, start_points, seg_length, temp_point_id, temp_road_id)
+        Make_Start_Points_Road(temp_road_geo, start_points, seg_length, temp_road_id, temp_point_id)
     
-'''    
-line = ogr.Geometry(ogr.wkbLineString)
-line.AddPoint(0, 0)
-line.AddPoint(2, 0)
-line.AddPoint(2, 1)
-line.AddPoint(4, 1)
-start = []
-Make_Start_Points(line, start, 1.5)
-print(start[3].point_geo)
-'''
-    
+'''这是面域步行指数的出发点，暂时没什么用'''
 def Make_Start_Points_Region(first_point_coord, last_point_coord, density):
     first_point_x = first_point_coord[0]
     first_point_y = first_point_coord[1]
