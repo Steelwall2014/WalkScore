@@ -77,11 +77,6 @@ def Make_Discre_Road_Points(road_geo:ogr.Geometry,
         temp_road_geo.AddPoint(temp_x, temp_y)
      
     Make_Discre_Road_Points(temp_road_geo, start_points, seg_length)
-    
-@nb.jit(nopython=True)    
-def linear_distance(point_A_coord:tuple, point_B_coord:tuple):
-    '''两点间直线距离'''
-    return math.sqrt((point_A_coord[0]-point_B_coord[0])**2 + (point_A_coord[1]-point_B_coord[1])**2)
 
 def Set_POI_Pointdata(filepath:str):
     all_poi_points = []
