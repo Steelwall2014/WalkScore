@@ -296,7 +296,7 @@ class WalkscoreCalculator:
     
 def is_included(current_code:str, weight_table_poi_code:str):
     #current_code是爬到的，weight_table_poi_code是自己写的权重表里的  
-    #poi_code: 050000/050101|050119A "/"后面是要排除掉的id 表示050000类的都会被提取，但是除了属于050101和050119的
+    #poi_code: 050000/050101|050119 "/"后面是要排除掉的id 表示050000类的都会被提取，但是除了属于050101和050119的
     needed_poi_codes = weight_table_poi_code.split('/')[0] #要包含的id
     if '/' in weight_table_poi_code:
         excepted_poi_codes = weight_table_poi_code.split('/')[1] #腰排除掉的id
@@ -304,12 +304,13 @@ def is_included(current_code:str, weight_table_poi_code:str):
         excepted_poi_codes = ''
     poi_codes = [del_zeros(temp_code) for temp_code in needed_poi_codes.split('|')] #[05]
     full_current_codes = [temp_code for temp_code in current_code.split('|')] #[050101, 050105]
-    excepted_poi_codes = [temp_code for temp_code in excepted_poi_codes.split('|')] #[050101, 050119]
+    excepted_poi_codes = [del_zeros(temp_code) for temp_code in excepted_poi_codes.split('|')] #[050101, 050119]
 
     #先判断在不在需要排除掉的里面
-    for full_current_code in full_current_codes:
-        if full_current_code in excepted_poi_codes:
-            return False
+    for excepted_poi_code in excepted_poi_codes:
+        for full_current_code in full_current_codes:
+            if full_current_code[:len(excepted_poi_code)] == excepted_poi_code:
+                return False
             
     for poi_code in poi_codes:
         for full_current_code in full_current_codes:
@@ -387,4 +388,4 @@ walkscore_calculator.Prepare_Roadinfo()
 walkscore_calculator.Prepare_POIinfo()
 walkscore_calculator.Compute_Walkscore(types)
 '''
-#print(is_included('050300', '050000/050101|050119A'))
+#print(is_included('050300', '050000/050101|050119'))
