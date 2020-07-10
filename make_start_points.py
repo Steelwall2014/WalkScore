@@ -1,5 +1,4 @@
 from osgeo import ogr
-from start_point import Startpoint
 import math
 
 #创建出发点
