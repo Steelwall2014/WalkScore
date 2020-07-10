@@ -19,3 +19,7 @@
 2020年06月更新：     
   做了一点小修改，主要是计算一个城市时不需要反复创建kdtree和Graph了，也不需要提前处理好POI数据了（抓取POI数据到道路上）
 
+
+
+程序的调用：  
+![Alt text](https://github.com/Steelwall2014/WalkScore/blob/master/%E8%B0%83%E7%94%A8.png)
