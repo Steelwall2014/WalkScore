@@ -7,6 +7,8 @@ from compute_walkscore import Compute_Walkscore_Road, Compute_Walkscore_Region
 from networkx_readshp import read_shp_to_graph
 from scipy import spatial
 import numpy as np
+import catch_road
+import shp
 
 import os
 import time
@@ -28,8 +30,9 @@ class WalkscoreCalculator:
         self.MultiType_poi_points = {}
         self.weight_table = {}  
         self.city = city
-        self.kdtrees = {}
         self.road_points = {}
+        self.shelve_path = './Shelve/'
+        self.flag = '3'
 #后面再加种类 
 
         
@@ -46,13 +49,15 @@ class WalkscoreCalculator:
                 self.weight_table[poi_code] = [[float(poi_weight) for poi_weight in poi_weights], poi_type]
 
         ss = 0
+        print('权重表如下：')
         for weight_poi_type in self.weight_table.values():
             s = 0
             for w in weight_poi_type[0]:
                 s += w
             ss += s
             print(weight_poi_type[1], s)
-        print(ss)
+        self.weight_sum = ss
+        print('权重和为：%f' % ss)
     #    print(self.weight_table)
     def Set_Road_Linedata(self, filename:str):
         self.road_linedata = filename
@@ -64,33 +69,57 @@ class WalkscoreCalculator:
     def Set_New_Road_Linedata(self, filename):
         self.new_road_linedata = filename
         
-    def Set_POI_Pointdata(self, filepath:str):
+    def Set_POI_Pointdata(self, filepath:str, new_csv_path:str):
+        print('##############################')
+        print('正在检测POI是否已经过抓路...')
         MultiType_poi_points = {}
-        kdtrees = {}
-        with open(filepath, 'r') as file:
+        index = new_csv_path.find('.csv')
+        new_csv_path_list = list(new_csv_path)
+        new_csv_path_list.insert(index, '错误')
+        error_path = ''.join(new_csv_path_list)
+
+        lines = []
+        catch_lines = []
+        with open(filepath, 'r', encoding='utf-8') as file:
+            lines = list(csv.reader(file))
+        if os.path.exists(new_csv_path):
+            with open(new_csv_path, 'r') as file:
+                catch_lines = list(csv.reader(file))
+        if not os.path.exists(new_csv_path) or len(lines) != len(catch_lines):
+            print('POI尚未被抓取到道路上')
+            print('开始将POI抓取到道路上.........')
+            catch_road.catch(self.city, 
+                             filepath,
+                             self.road_linedata,
+                             new_csv_path, error_path, 50)
+        else:
+            print('POI已经成功被抓取到道路上')
+        del lines
+        del catch_lines
+        print('正在准备POI的数据...')
+        with open(new_csv_path, 'r') as file:
             reader = csv.reader(file)
             lines = list(reader)
+            coord_index = lines[0].index('lng')
+            code_index = lines[0].index('poi_code')
             del lines[0]
             for poi_code, weights_types in self.weight_table.items(): 
                 SingleType_poi_points = []
                 for line in lines:
-                    if float(line[15]) > 3000 or len(line) != 16:
+                    if float(line[-1]) > 3000:
                         continue
-                    current_code = str(line[2])
+                    current_code = str(line[code_index])
                     current_code = del_last_letter(current_code)
                     #为什么种类代码的后面有个A呢，是因为excel总是把字符串当成数字，然后把第一个0删了，有个A可以强制为字符串
                     if is_included(current_code, poi_code):
-                        coord = (float(line[5]), float(line[6]))
+                        coord = (float(line[coord_index]), float(line[coord_index+1]))
                         SingleType_poi_points.append(coord)
-                        road_point = to_tuple(line[12])
-                        pre_point = to_tuple(line[13])
-                        next_point = to_tuple(line[14])
-                        dist = float(line[15])
+                        road_point = to_tuple(line[-4])
+                        pre_point = to_tuple(line[-3])
+                        next_point = to_tuple(line[-2])
+                        dist = float(line[-1])
                         self.road_points[coord] = [road_point, pre_point, next_point, dist]
-                kdtree = spatial.KDTree(np.array(SingleType_poi_points))
-                kdtrees[weights_types[1]] = kdtree
                 MultiType_poi_points[weights_types[1]] = SingleType_poi_points
-        self.kdtrees = kdtrees
         self.MultiType_poi_points = MultiType_poi_points
         
         #print(self.MultiType_poi_points)
@@ -103,109 +132,101 @@ class WalkscoreCalculator:
                     y = i[1]
                     writer.writerows([[k, x, y]])
         '''
-        print('\n所有POI的数据准备完成...')
+        print('所有POI的数据准备完成')
+        print('#################################')
 
     
-    def Compute_Road_Walkscore(self, seg_length):
+    def Compute_Road_Walkscore(self, seg_length, poi_num, part_num):
         '''准备道路的数据以及计算步行指数'''
         #Multi_roads_geos = read_shp_to_geo(self.road_linedata)
-        G = read_shp_to_graph(self.road_linedata, simplify=False).to_undirected()
+        scale = 100.0 / self.weight_sum
+        print('正在检测Graph和KDtree是否已经生成过')
+        write_G = False
+        write_T = False
+        if not os.path.exists(self.shelve_path):
+            os.makedirs(self.shelve_path)
+        if not os.path.exists(self.shelve_path + self.city + '.dat'):
+            write_G = True
+            write_T = True
+        elif os.path.exists(self.shelve_path + self.city + '.dat'):
+            s = shelve.open(self.shelve_path + self.city, 'r')
+            if s.get('G') is None:
+                write_G = True
+            if s.get('T') is None:
+                write_T = True
+            s.close()
         
+        print('Graph: 未生成', end='  ') if write_G else print('Graph: 已生成', end='  ')  
+        print('KDtree: 未生成') if write_T else print('KDtree: 已生成') 
+        
+        if write_G:
+            print('正在生成Graph...')
+            s = shelve.open(self.shelve_path + self.city, 'c')            
+            G = read_shp_to_graph(self.road_linedata, simplify=False).to_undirected()
+            s['G'] = G
+            s.close()
+            print('Graph生成完成')
+        if write_T:
+            print('正在生成KDtree...')
+            s = shelve.open(self.shelve_path + self.city, 'c')            
+            kdtrees = self.create_kdtree()
+            s['T'] = kdtrees
+            s.close()
+            print('KDtree生成完成')
+        with shelve.open(self.shelve_path + self.city, 'r') as s:
+            G = s['G']
+            kdtrees = s['T']
         #temp_road_info = []      
         #准备路网的数据，temp_road_info是所有道路的数据，temp_roadInfo是一条道路的数据  
         '''读取shp文件'''
-        dr = ogr.GetDriverByName('ESRI Shapefile')
-        if dr is None:
-            print('注册道路的驱动失败...')
-            return False
-        print('注册道路的驱动成功...')
-        ds = dr.Open(self.road_linedata, 0)
-        if ds is None:
-            print('打开道路的shp文件失败...')
-            return False
-        print('打开道路的shp文件成功...')
-        '''读取图层'''
-        layer = ds.GetLayerByIndex(0)
-        if layer is None:
-            print('获取道路的图层失败...')
-            return False
-        print('获取道路的图层成功...')
-        layer.ResetReading()   
-        
-        print('正在统计一共有多少个点')
-        road_count, point_count, spatial_reference, fDefns = Counting(layer, seg_length)
-        field_count = len(fDefns)
-        for fDefn_index in range(len(fDefns)):
-            fName = fDefns[fDefn_index].GetName()
-            if 'name' in fName.lower():
-                name_index = fDefn_index+1
+        reader = shp.shp_reader(self.road_linedata)
+        head = reader.readhead()
+        spatial_reference = reader.readSRS()
+
+        for field in head:
+            if 'name' == field.lower():
+                name_index = list(head.keys()).index(field)
+            elif 'id' in field.lower():
+                id_index = list(head.keys()).index(field)   
+                
+        print('正在统计一共有多少个点...')   
+        road_count, point_count = Counting(reader.layer, seg_length, name_index)   
         print('一共有%d条路，%d个点' % (road_count, point_count))
         
-        flag = input("是否写入？1为写入，2为不写入，其他字符为退出\n")
+        parts = [1, road_count // 3, road_count // 3 * 2, road_count]
+        flag = self.flag
         #flag = '2'
         if flag == '1': 
-            new_ds = dr.CreateDataSource(self.new_road_linedata)
-            new_layer = new_ds.CreateLayer('city', spatial_reference, ogr.wkbLineString)
-            '''
-            Field_real_id = ogr.FieldDefn('real_id', ogr.OFTInteger)
-            Field_id = ogr.FieldDefn('id', ogr.OFTString)
-            Field_center = ogr.FieldDefn('center', ogr.OFTString)
-            Field_citycode = ogr.FieldDefn('citycode', ogr.OFTString)
-            Field_name = ogr.FieldDefn('name', ogr.OFTString)
-            Field_road_type = ogr.FieldDefn('road_type', ogr.OFTString)
-            Field_width = ogr.FieldDefn('width', ogr.OFTReal) 
-            '''
-            fDefn_real_id = ogr.FieldDefn('real_id', ogr.OFTInteger)
-            fDefn_walkscore = ogr.FieldDefn("walkscore", ogr.OFTReal)
-            fDefns.insert(0, fDefn_real_id)
-            fDefns.append(fDefn_walkscore)
-            for fDefn in fDefns:
-                new_layer.CreateField(fDefn)
+            writer = shp.shp_writer(self.new_road_linedata)
+            writer.createlayer(spatial_reference, ogr.wkbLineString)
+            new_head = {'real_id':ogr.OFTInteger}
+            for field, _OFT in head.items():
+                new_head[field] = _OFT
+            new_head['walkscore'] = ogr.OFTReal
             for weights_types in self.weight_table.values():
                 poi_type = weights_types[1]
-                fDefn = ogr.FieldDefn(poi_type, ogr.OFTReal)
-                new_layer.CreateField(fDefn)
-            Defn = new_layer.GetLayerDefn()
+                new_head[poi_type] = ogr.OFTReal       
+            writer.writehead(new_head)
         elif flag == '2':
             print('不写入\n')
         else:
             return False        
-        '''
-        print('正在生成POI点和对应最近道路点的字典')
-        road_points = GenerateRoadPoints(self.MultiType_poi_points, layer, seg_length)  
-        with shelve.open('../Road_Points/'+self.city, 'c') as file:
-            print('正在将POI点和对应最近道路点的字典写入文件')
-            file['road_points'] = road_points 
-        '''
+
         print('kdtree, seg_length=' + str(seg_length))     
         print('\n开始计算步行指数')
 
-        layer.ResetReading()
-        temp_road = layer.GetNextFeature()
-        temp_count = 0
+        real_id = 0
         start = time.time()
         counting_up_to_now = 0
-        while temp_road:
+        for row in reader.readrows():
             
-            temp_count += 1
+            real_id += 1
+            if not parts[part_num-1] < real_id <= parts[part_num]:
+                continue
             start_point_info = {}
-            temp_geo = temp_road.GetGeometryRef().Clone()    #temp_geo可能是MultiLinestring
-            real_id = temp_count
-            fields = [real_id]
-            fields.extend(GetFields(temp_road, field_count))  
-            '''
-            if temp_id != '025I50F048039268':#025H50F0020382788':#025H50F00203948:
-                temp_road = layer.GetNextFeature()
-                continue     
-            '''
-            '''
-            if temp_count <= 44761:
-                temp_road = layer.GetNextFeature()
-                continue
-            '''    
-            if '高速' in fields[name_index]:
-                temp_road = layer.GetNextFeature()
-                continue
+            temp_geo = row[-1]    #temp_geo可能是MultiLinestring
+            #if real_id > 8884: break
+            #if real_id != 8884: continue    
             
             start_time = time.time()
             '''
@@ -216,53 +237,55 @@ class WalkscoreCalculator:
                     Make_Start_Points_Road(temp_road_geo, start_point_info, seg_length, temp_id)#每隔seg_length创建一个出发点
             elif temp_geo.GetGeometryName() == 'LINESTRING':
             '''
+            if row[name_index] is not None:
+                if '高速' in row[name_index]:
+                    continue
             Make_Start_Points_Road(temp_geo, start_point_info, seg_length)
 
             counting = len(start_point_info)
             counting_up_to_now += counting
-            print('第%d/%d条：名称为%s，%d个点' % (temp_count, road_count, fields[name_index], counting ))
+            print('第%d/%d条：名称为%s，%d个点' % (real_id, road_count, row[name_index], counting ))
             
             ws = Compute_Walkscore_Road(start_point_info, 
                                         self.weight_table, 
                                         self.MultiType_poi_points, 
                                         self.road_points,
                                         G,
-                                        self.kdtrees)                                         
+                                        kdtrees,
+                                        poi_num,
+                                        scale)                                         
             walkscore = ws['main']
-
-            if flag == '1':  
-                feature = ogr.Feature(Defn)
-                feature.SetGeometry(temp_geo)
-                fields.append(walkscore)
+            if flag == '1':
+                new_row = [real_id] + row[:-1] + [walkscore]
                 for weights_types in self.weight_table.values():
                     poi_type = weights_types[1]
-                    poi_type_ws = ws[poi_type]
-                    fields.append(poi_type_ws)                         
-                for i in range(len(fields)):
-                    feature.SetField(i, fields[i])
-      
-                new_layer.CreateFeature(feature)     
-                new_ds.SyncToDisk()
-                
+                    poi_type_ws = ws[poi_type]                
+                    new_row.append(poi_type_ws)
+                new_row.append(temp_geo)
+                writer.appendrows([new_row])                
             print('步行指数为 %f   ' % walkscore, end='')            
             end_time = time.time()  
             time_left = (end_time-start) / counting_up_to_now * (point_count - counting_up_to_now)
             print('步行指数计算%f秒，共%f秒, 预计还剩%.1f分钟' % ((end_time-start_time), (end_time-start), time_left/60))
-
-            '''
-            temp_roadInfo = RoadInfo(temp_name, temp_id, temp_geo, 0)
-            temp_road_info.append(temp_roadInfo)
-            '''
-            temp_road = layer.GetNextFeature()
-            #if temp_count > 10:
+            #if real_id > 10:
             #break
+        if flag == '1':
+            writer.ds.Destroy()
         '''
         self.all_road_info = temp_road_info
         self.all_start_point_info = start_point_info
         '''
-
+        print(counting_up_to_now, point_count)
         return True
-        
+
+    def create_kdtree(self):
+        kdtrees = {}
+        for weights_types in self.weight_table.values():
+            SingleType_poi_points = self.MultiType_poi_points[weights_types[1]]
+            kdtree = spatial.KDTree(np.array(SingleType_poi_points))
+            kdtrees[weights_types[1]] = kdtree   
+        return kdtrees
+    
     def Compute_Region_Walkscore(self, first_point_coord, last_point_coord, density, filepath):
         start_points_info = Make_Start_Points_Region(first_point_coord, last_point_coord, density)
         Compute_Walkscore_Region(start_points_info, self.weight_table, self.MultiType_poi_points_geo)
@@ -338,20 +361,20 @@ def to_tuple(s):
     y = float(coord[1][:-1])
     return (x, y)
 
-    
-def Counting(layer, seg_length):
+#18832 19711    
+def Counting(layer, seg_length, name_index):
     '''统计有多少条路多少个点'''
     layer.ResetReading()
     temp_road = layer.GetNextFeature()
-    field_count = temp_road.GetFieldCount()
-    fDefns = []
-    for i in range(field_count):
-        fDefn = temp_road.GetFieldDefnRef(i)
-        fDefns.append(fDefn)
             
     road_count = 0
     point_count = 0
+    
     while temp_road:
+        name = temp_road.GetFieldAsString(name_index)
+        if '高速' in name:
+            temp_road = layer.GetNextFeature()
+            continue
         temp_geo = temp_road.GetGeometryRef().Clone()
         start_point_info = {}
         if temp_geo.GetGeometryName() == 'MULTILINESTRING':
@@ -364,8 +387,7 @@ def Counting(layer, seg_length):
         road_count += 1
         point_count += len(start_point_info)
         temp_road = layer.GetNextFeature()
-    srs = temp_geo.GetSpatialReference()
-    return road_count, point_count, srs, fDefns
+    return road_count, point_count
 
 def GetFields(feature, field_count):
     fields = []
@@ -390,4 +412,8 @@ walkscore_calculator.Prepare_Roadinfo()
 walkscore_calculator.Prepare_POIinfo()
 walkscore_calculator.Compute_Walkscore(types)
 '''
-#print(is_included('050300', '050000/050101|050119'))
+def TEST_is_included(): 
+    print(is_included('060400|050700', '060400|060700'))
+    
+if __name__ == '__main__':
+    TEST_is_included()

@@ -77,6 +77,7 @@ def Make_Discre_Road_Points(road_geo:ogr.Geometry,
         temp_road_geo.AddPoint(temp_x, temp_y)
      
     Make_Discre_Road_Points(temp_road_geo, start_points, seg_length)
+    
 
 def Set_POI_Pointdata(filepath:str):
     all_poi_points = []
@@ -97,20 +98,20 @@ def GenerateRoadPoints(all_poi_points:list, road_linedata_filename, seg_length:f
     
     dr = ogr.GetDriverByName('ESRI Shapefile')
     if dr is None:
-        print('注册道路的驱动失败...')
+        #print('注册道路的驱动失败...')
         return False
-    print('注册道路的驱动成功...')
+    #print('注册道路的驱动成功...')
     ds = dr.Open(road_linedata_filename, 1)
     if ds is None:
-        print('打开道路的shp文件失败...')
+        #print('打开道路的shp文件失败...')
         return False
-    print('打开道路的shp文件成功...')
+    #print('打开道路的shp文件成功...')
     '''读取图层'''
     layer = ds.GetLayerByIndex(0)
     if layer is None:
-        print('获取道路的图层失败...')
+        #print('获取道路的图层失败...')
         return False
-    print('获取道路的图层成功...')
+    #print('获取道路的图层成功...')
     layer.ResetReading() 
 
     poi_points = all_poi_points
@@ -119,7 +120,7 @@ def GenerateRoadPoints(all_poi_points:list, road_linedata_filename, seg_length:f
     temp_road = layer.GetNextFeature()
     
     start_points = {}    #[离散道路点: (前点, 后点), 离散道路点: (前点, 后点)...] 
-    print("正在读取道路并生成道路离散点")
+    print("正在读取道路并生成道路离散点.........")
     while temp_road:
         temp_geo = temp_road.GetGeometryRef().Clone()
         if temp_geo.GetGeometryName() == 'MULTILINESTRING':
@@ -131,7 +132,7 @@ def GenerateRoadPoints(all_poi_points:list, road_linedata_filename, seg_length:f
             Make_Discre_Road_Points(temp_geo, start_points, seg_length)
         temp_road = layer.GetNextFeature()
     print('将道路离散化为%d个点' % len(start_points))
-    print('正在生成绑定道路点 kdtree')
+    print('正在生成抓路点.........')
     
 
     length = len(poi_points)
@@ -140,7 +141,7 @@ def GenerateRoadPoints(all_poi_points:list, road_linedata_filename, seg_length:f
     start = time.time()
     tree.query(np.array(poi_points[:1000]))
     end = time.time()
-    print((end-start) / 1000 * length)
+    print('预计剩余%.6f秒' % ((end-start) / 1000 * length))
     query_result = tree.query(np.array(poi_points))    
     distances = query_result[0].tolist()
     indices = query_result[1].tolist()
@@ -151,7 +152,7 @@ def GenerateRoadPoints(all_poi_points:list, road_linedata_filename, seg_length:f
         lisan_road_point = start_road_points[indices[i]]
         pre_point, next_point = start_points[lisan_road_point]
         road_points[poi_point] = [lisan_road_point, pre_point, next_point, min_dist]
-    print('一共%.6f秒' % (time.time()-start))
+    print('生成完毕！一共%.6f秒' % (time.time()-start))
     return road_points
 
 
@@ -161,7 +162,7 @@ def to_tuple(s):
     y = float(coord[1][:-1])
     return (x, y)
 
-def main(city, poi_path, road_path, newcsv_path, error_path, seg_length):
+def catch(city, poi_path, road_path, newcsv_path, error_path, seg_length):
     
     
     all_poi_points = Set_POI_Pointdata(poi_path)
@@ -207,26 +208,26 @@ def main(city, poi_path, road_path, newcsv_path, error_path, seg_length):
     with open(newcsv_path, 'w', newline='', encoding='gbk') as file:
         head = ['', 'id', 'parent', 'poi_code', 'poi_type', 'name', 'lng', 'lat', 'entr_lng', 'entr_lat', 'city', 'district', 'address', '道路点', '前点', '后点', '距离']
         writer = csv.writer(file)
-        print('正在将POI点和对应最近道路点的字典写入文件')
+        print('正在将POI点和对应最近道路点的字典写入文件..........')
         writer.writerow(head)
         writer.writerows(new_lines)
         
     with open(error_path, 'w', newline='', encoding='gbk') as file:
         writer = csv.writer(file)
-        print('正在写入没绑定成功的点')
+        print('正在写入抓路失败的点.........')
         writer.writerows(error)
-    
-city = '南京'        
-poi_path = '../POI信息_新版/' + city + '_' + '.csv'
-#test_poi_path = '../POI信息_投影/test.csv'
-#road_path = '../高德路网_final/' + city + '.shp'
-road_path = '../OSM路网_投影_改/' + city + '.shp'
-newcsv_path = '../Road_Points_新版/' + city + '.csv'
-error_path = '../Road_Points_新版/' + city + '错误.csv'     
-seg_length = 50
-main(city, 
-     poi_path, 
-     road_path, 
-     newcsv_path, 
-     error_path,
-     seg_length) 
+if __name__ == '__main__':
+    city = '南京'        
+    poi_path = '../POI信息_新版/' + city + '_' + '.csv'
+    #test_poi_path = '../POI信息_投影/test.csv'
+    #road_path = '../高德路网_final/' + city + '.shp'
+    road_path = '../OSM路网_投影_改/' + city + '.shp'
+    newcsv_path = '../Road_Points_新版/' + city + '.csv'
+    error_path = '../Road_Points_新版/' + city + '错误.csv'     
+    seg_length = 50
+    catch(city, 
+         poi_path, 
+         road_path, 
+         newcsv_path, 
+         error_path,
+         seg_length) 

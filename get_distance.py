@@ -2,7 +2,7 @@
 """
 Created on Sat Sep 28 16:32:41 2019
 
-@author: DELL
+@author: 张径舟
 """
 
 from osgeo import ogr
@@ -16,12 +16,15 @@ import numpy as np
 from heapq import heappush, heappop
 import itertools
 
-
-def Make_Discre_Points_Road(road_geo:ogr.Geometry, 
-                           start_points:list, 
-                           seg_length:float):
-    pass
         
+def run_time(func):
+    def call_fun(*args, **kwargs):
+        start_time = time.time()
+        f = func(*args, **kwargs)
+        end_time = time.time()
+        print('%s() run time：%s ms' % (func.__name__, 1000*(end_time - start_time)))
+        return f
+    return call_fun
 
 def integer(a_list):
     '''把列表(或元组)内每一个元素（必须是float）向下取整'''
@@ -193,8 +196,6 @@ def _dijkstra_multisource(G, sources, weight, pred=None, paths=None,
                 if pred is not None:
                     pred[u].append(v)
 
-    # The optional predecessor and path dictionaries can be accessed
-    # by the caller via the pred and paths objects passed as arguments.
     return dist
 
 
@@ -203,13 +204,10 @@ def my_dijkstra_path_length(G, source, target, cutoff=None, weight='weight'):
         return 0
     weight = _weight_function(G, weight)
     length = _dijkstra(G, source, weight, cutoff=cutoff, target=target)
-    if length.get(target) is not None:
-        return length[target]
-    else:
-        return 10000000    
+    return length
         
 
-    
+  
 def GetNetDistances(start_point:tuple, stop_points, pre_nex_points, road_points, G):
     '''计算路网距离'''
     a = time.time()
@@ -218,6 +216,8 @@ def GetNetDistances(start_point:tuple, stop_points, pre_nex_points, road_points,
     tied_start_point_coord = tuple(integer(start_point))
     start_between_A = tuple(integer(pre_nex_points[0]))
     start_between_B = tuple(integer(pre_nex_points[1]))
+    poi_to_road_dists = {}
+    poi_and_tied_stop_point = {}
     for stop_point in stop_points:
         aaa = time.time()
         #points_stop = tie_point_on_road_stop(stop_point, MultiRoads_geos)    
@@ -227,40 +227,48 @@ def GetNetDistances(start_point:tuple, stop_points, pre_nex_points, road_points,
         stop_between_A = tuple(integer(points_stop[1]))
         stop_between_B = tuple(integer(points_stop[2]))
         poi_to_road_dis = points_stop[3]
-        
+        poi_to_road_dists[stop_point] = poi_to_road_dis
         G.remove_edges_from([(start_between_A, start_between_B),(stop_between_A, stop_between_B)])
         G.add_weighted_edges_from([(start_between_A, tied_start_point_coord, linear_distance(start_between_A, tied_start_point_coord)),
                                    (tied_start_point_coord, start_between_B, linear_distance(start_between_B, tied_start_point_coord)), 
                                    (stop_between_A, tied_stop_point_coord, linear_distance(stop_between_A, tied_stop_point_coord)),
                                    (tied_stop_point_coord, stop_between_B, linear_distance(stop_between_B, tied_stop_point_coord))])   
+        poi_and_tied_stop_point[stop_point] = tied_stop_point_coord
+    aaa = time.time()
+    #print(aaa-a)
+    dist = my_dijkstra_path_length(G, tied_start_point_coord, None, cutoff=2400)
 
-        aaa = time.time()
-        #print(nx.has_path(G, tied_start_point_coord, tied_stop_point_coord))
+    for stop_point in stop_points:
+        tied_stop_point_coord = poi_and_tied_stop_point[stop_point]
+        if dist.get(tied_stop_point_coord) is not None:
+            temp_dist = dist[tied_stop_point_coord]
+        else:
+            temp_dist = 1000000000
+        temp_dist = temp_dist + poi_to_road_dists[stop_point]
+        if temp_dist < 2400:
+            net_distances.append(temp_dist)
+    '''
+    try:
+    #if nx.has_path(G, tied_start_point_coord, tied_stop_point_coord):
+        aa = time.time()
+        #注意：可能要写一个if来判断2400-poi_to_road_dis是正数还是负数
         dist = my_dijkstra_path_length(G, tied_start_point_coord, tied_stop_point_coord, cutoff=2400-poi_to_road_dis)+poi_to_road_dis
+        #print(dist)
         if dist < 2400:
             net_distances.append(dist)
-        '''
-        try:
-        #if nx.has_path(G, tied_start_point_coord, tied_stop_point_coord):
-            aa = time.time()
-            #注意：可能要写一个if来判断2400-poi_to_road_dis是正数还是负数
-            dist = my_dijkstra_path_length(G, tied_start_point_coord, tied_stop_point_coord, cutoff=2400-poi_to_road_dis)+poi_to_road_dis
-            #print(dist)
-            if dist < 2400:
-                net_distances.append(dist)
-            bb = time.time()
-            #print('net dist: %.6f' % (bb-aa))
-            #print('路网距离计算成功')
-        except:
-        #else:
-            aaaa = time.time()
-            net_distances.append(linear_distance(start_point, stop_point))
-            bbbb = time.time()
-            #print('linear dist: %.6f' % (bbbb-aaaa))
-            #print('路网距离计算失败，使用直线距离')
-        '''
-        bbb = time.time()
-        #print('time: %.6f' % (bbb-aaa))
+        bb = time.time()
+        #print('net dist: %.6f' % (bb-aa))
+        #print('路网距离计算成功')
+    except:
+    #else:
+        aaaa = time.time()
+        net_distances.append(linear_distance(start_point, stop_point))
+        bbbb = time.time()
+        #print('linear dist: %.6f' % (bbbb-aaaa))
+        #print('路网距离计算失败，使用直线距离')
+    '''
+    bbb = time.time()
+    #print('time: %.6f' % (bbb-aaa))
     #当路网距离无法进行计算时会消耗大量时间
     #可能需要在最后的时候把新添加的边删掉
     b = time.time()

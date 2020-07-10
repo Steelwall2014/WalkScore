@@ -6,6 +6,15 @@ import math
 import numba as nb
 import numpy as np
 
+def run_time(func):
+    def call_fun(*args, **kwargs):
+        start_time = time.time()
+        f = func(*args, **kwargs)
+        end_time = time.time()
+        print('%s() run time：%s ms' % (func.__name__, 1000*(end_time - start_time)))
+        return f
+    return call_fun
+
 
 def Attenuate(distance):
     '''距离衰减系数'''
@@ -17,12 +26,15 @@ def Attenuate(distance):
         return 0.12
     else:
         return 0
-                       
-def GetNeededPointsIndice_KDtree(start_point_coord, kdtree, needed_count, distance_upper_bound):
-    query_result = kdtree.query(np.array(start_point_coord), k=needed_count, distance_upper_bound=distance_upper_bound)
-    return query_result[1].tolist()
+                     
+def GetNeededPointsIndice_KDtree(start_point_coord, kdtree, k, distance_upper_bound):
+    query_result = kdtree.query(np.array(start_point_coord), k=k, distance_upper_bound=distance_upper_bound)
+    if k is None:
+        return query_result[1]
+    else:
+        return query_result[1].tolist()
 
-def Compute_Walkscore_Road(start_points_info:dict, weight_tables:dict, MultiType_poi_points:dict, road_points, G, kdtrees):          
+def Compute_Walkscore_Road(start_points_info:dict, weight_tables:dict, MultiType_poi_points:dict, road_points, G, kdtrees, poi_num, scale):          
     '''计算步行指数'''
     type_weights = {}
     for weights_types in weight_tables.values():
@@ -44,7 +56,7 @@ def Compute_Walkscore_Road(start_points_info:dict, weight_tables:dict, MultiType
             #print('points: ' + str(len(points)))
             #a = time.time()
             
-            needed_points_indice = GetNeededPointsIndice_KDtree(temp_start_point, kdtree, len(weight_table)*2, 2400)
+            needed_points_indice = GetNeededPointsIndice_KDtree(temp_start_point, kdtree, poi_num, 2400)
             for index in needed_points_indice:
                 if index < len(poi_points):
                     needed_points.append(poi_points[index])
@@ -67,8 +79,8 @@ def Compute_Walkscore_Road(start_points_info:dict, weight_tables:dict, MultiType
         road_values += value
     
     for poi_type in MultiType_poi_points.keys():
-        ws[poi_type] = ws[poi_type] / count
-    walkscore = road_values / count
+        ws[poi_type] = ws[poi_type] / count * scale
+    walkscore = road_values / count * scale
     ws['main'] = walkscore
     return ws
 
