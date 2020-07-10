@@ -56,33 +56,6 @@ def Make_Start_Points_Road(road_geo:ogr.Geometry,
       
     Make_Start_Points_Road(temp_road_geo, start_points, seg_length)
     
-    
-
-
-    
-def Make_Start_Points_Region(first_point_coord, last_point_coord, density):
-    first_point_x = first_point_coord[0]
-    first_point_y = first_point_coord[1]
-    last_point_x = last_point_coord[0]
-    last_point_y = last_point_coord[1]
-    pointnumber_in_x = int((last_point_x-first_point_x) / density) + 2
-    pointnumber_in_y = int((first_point_y-last_point_y) / density) + 2
-
-    temp_point_y = first_point_y
-    start_points_info = []
-    temp_id = 1
-    for i in range(pointnumber_in_y):
-        temp_point_x = first_point_x
-        for j in range(pointnumber_in_x):
-            temp_point_geo = ogr.Geometry(ogr.wkbPoint)
-            temp_point_geo.AddPoint(temp_point_x, temp_point_y)
-            temp_start_point = Startpoint(0, temp_point_geo)
-            start_points_info.append(temp_start_point)
-            temp_point_x += density
-            temp_id += 1
-        temp_point_y = temp_point_y - density 
-    return start_points_info
-   
 if __name__ == '__main__':     
     line = ogr.Geometry(ogr.wkbLineString)
     line.AddPoint(0, 0)
