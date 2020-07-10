@@ -1,3 +1,6 @@
+'''
+从路网生成networkx的Graph
+'''
 import networkx as nx
 from osgeo import ogr
 import math
