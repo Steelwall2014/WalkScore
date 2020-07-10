@@ -1,19 +1,18 @@
 from osgeo import ogr
 from osgeo import gdal
-from road_info import RoadInfo
-from poi_point import Poipoint 
-from make_start_points import Make_Start_Points_Road, Make_Start_Points_Region
-from compute_walkscore import Compute_Walkscore_Road, Compute_Walkscore_Region
-from networkx_readshp import read_shp_to_graph
-from scipy import spatial
-import numpy as np
-import catch_road
-import shp
-
 import os
 import time
 import shelve
 import csv
+from scipy import spatial
+import numpy as np
+
+from make_start_points import Make_Start_Points_Road
+from compute_walkscore import Compute_Walkscore_Road
+from networkx_readshp import read_shp_to_graph
+import catch_road
+import shp
+
 
 
 '''防止编码出现问题'''
@@ -31,9 +30,8 @@ class WalkscoreCalculator:
         self.weight_table = {}  
         self.city = city
         self.road_points = {}
-        self.shelve_path = './Shelve/'
+        self.shelve_path = './Shelve/' # kdtree和Graph的缓存文件，一个城市首次计算会创建，之后就直接读取
         self.flag = '3'
-#后面再加种类 
 
         
     def Set_Weights(self, filepath):
@@ -110,7 +108,8 @@ class WalkscoreCalculator:
                         continue
                     current_code = str(line[code_index])
                     current_code = del_last_letter(current_code)
-                    #为什么种类代码的后面有个A呢，是因为excel总是把字符串当成数字，然后把第一个0删了，有个A可以强制为字符串
+                    #为什么要去掉种类代码的最后一个字符呢，因为种类代码的后面有个A
+                    #excel总是把字符串当成数字，然后把第一个0删了，有这个A可以强制为字符串
                     if is_included(current_code, poi_code):
                         coord = (float(line[coord_index]), float(line[coord_index+1]))
                         SingleType_poi_points.append(coord)
@@ -183,6 +182,7 @@ class WalkscoreCalculator:
         head = reader.readhead()
         spatial_reference = reader.readSRS()
 
+        # 获取id字段和name字段的index
         for field in head:
             if 'name' == field.lower():
                 name_index = list(head.keys()).index(field)
@@ -193,6 +193,7 @@ class WalkscoreCalculator:
         road_count, point_count = Counting(reader.layer, seg_length, name_index)   
         print('一共有%d条路，%d个点' % (road_count, point_count))
         
+        # 这个part是想把一个城市分成三个部分并行计算，还没有调试好
         parts = [1, road_count // 3, road_count // 3 * 2, road_count]
         flag = self.flag
         #flag = '2'
@@ -249,6 +250,7 @@ class WalkscoreCalculator:
                                         scale)                                         
             walkscore = ws['main']
             if flag == '1':
+                # 如果flag等于1，则写入，否则只是计算，不会写入一个新的shp文件
                 new_row = [real_id] + row[:-1] + [walkscore]
                 for weights_types in self.weight_table.values():
                     poi_type = weights_types[1]
@@ -324,7 +326,6 @@ def to_tuple(s):
     y = float(coord[1][:-1])
     return (x, y)
 
-#18832 19711    
 def Counting(layer, seg_length, name_index):
     '''统计有多少条路多少个点'''
     layer.ResetReading()
@@ -352,31 +353,3 @@ def Counting(layer, seg_length, name_index):
         temp_road = layer.GetNextFeature()
     return road_count, point_count
 
-def GetFields(feature, field_count):
-    fields = []
-    for i in range(field_count):
-        fDefn = feature.GetFieldDefnRef(i)
-        if fDefn.GetType() == ogr.OFTInteger:
-            field = feature.GetFieldAsInteger(i)
-            
-        elif fDefn.GetType() == ogr.OFTReal:
-            field = feature.GetFieldAsDouble(i)
-            
-        elif fDefn.GetType() == ogr.OFTString:
-            field = feature.GetFieldAsString(i)  
-        fields.append(field)
-    return fields
-'''            
-walkscore_calculator = WalkscoreCalculator()
-types = walkscore_calculator.poi_types
-walkscore_calculator.Set_Road_Linedata('C:\\Users\\DELL\\Desktop\\first_trial\\road\\roads_cgcs2000.shp')
-walkscore_calculator.Set_POI_Pointdata('C:\\Users\\DELL\\Desktop\\first_trial\\')
-walkscore_calculator.Prepare_Roadinfo()
-walkscore_calculator.Prepare_POIinfo()
-walkscore_calculator.Compute_Walkscore(types)
-'''
-def TEST_is_included(): 
-    print(is_included('060400|050700', '060400|060700'))
-    
-if __name__ == '__main__':
-    TEST_is_included()
