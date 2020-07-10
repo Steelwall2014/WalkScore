@@ -229,14 +229,7 @@ class WalkscoreCalculator:
             #if real_id != 8884: continue    
             
             start_time = time.time()
-            '''
-            if temp_geo.GetGeometryName() == 'MULTILINESTRING':
-                roads_count = temp_geo.GetGeometryCount()
-                for index in range(roads_count):
-                    temp_road_geo = temp_geo.GetGeometryRef(index)
-                    Make_Start_Points_Road(temp_road_geo, start_point_info, seg_length, temp_id)#每隔seg_length创建一个出发点
-            elif temp_geo.GetGeometryName() == 'LINESTRING':
-            '''
+            
             if row[name_index] is not None:
                 if '高速' in row[name_index]:
                     continue
@@ -286,38 +279,8 @@ class WalkscoreCalculator:
             kdtrees[weights_types[1]] = kdtree   
         return kdtrees
     
-    def Compute_Region_Walkscore(self, first_point_coord, last_point_coord, density, filepath):
-        start_points_info = Make_Start_Points_Region(first_point_coord, last_point_coord, density)
-        Compute_Walkscore_Region(start_points_info, self.weight_table, self.MultiType_poi_points_geo)
-        dr = ogr.GetDriverByName('ESRI Shapefile')
-        if dr is None:
-            return False
-        ds = dr.CreateDataSource(filepath)
-        if ds is None:
-            return False
-        layer = ds.CreateLayer('Points', None, ogr.wkbPoint)
-    
-        FieldID = ogr.FieldDefn('ID', ogr.OFTInteger)
-        layer.CreateField(FieldID, 1)
-    
-        FieldWalkscore = ogr.FieldDefn('Walkscore', ogr.OFTReal)
-        layer.CreateField(FieldWalkscore, 1)
-    
-        oDefn = layer.GetLayerDefn()
-        print('开始写入面域步行指数')
-        for start_point_info in start_points_info:
-            start_point_feature = ogr.Feature(oDefn)
-            start_point_feature.SetField(0, start_point_info.point_id)
-            start_point_feature.SetField(1, start_point_info.walkscore)
-            start_point_feature.SetGeometry(start_point_info.point_geo)
-            layer.CreateFeature(start_point_feature)
-        ds.Destroy()
-        return True
-    
-
-        
-    
 def is_included(current_code:str, weight_table_poi_code:str):
+    #判断这个POI有没有包含在权重表里，是不是计算需要的
     #current_code是爬到的，weight_table_poi_code是自己写的权重表里的  
     #poi_code: 050000/050101|050119 "/"后面是要排除掉的id 表示050000类的都会被提取，但是除了属于050101和050119的
     needed_poi_codes = weight_table_poi_code.split('/')[0] #要包含的id
